@@ -1,6 +1,6 @@
 # OmaNetWatch
 
-OmaNetWatch is a personal Omarchy shell plugin that monitors HTTP and TCP endpoints, shows their current state in a native bar popup, and sends outage and recovery notifications.
+OmaNetWatch is an Omarchy shell plugin that monitors HTTP and TCP endpoints, shows their current state in a native bar popup, and sends outage and recovery notifications.
 
 ## Current features
 
@@ -27,7 +27,7 @@ Then create your configuration:
 
 ```bash
 mkdir -p ~/.config/omanetwatch
-cp ~/.config/omarchy/plugins/keith.omanetwatch/config.example.json \
+cp ~/.config/omarchy/plugins/io.github.keithnyc.omanetwatch/config.example.json \
   ~/.config/omanetwatch/targets.json
 ```
 
@@ -45,9 +45,9 @@ cp config.example.json ~/.config/omanetwatch/targets.json
 Install the plugin by linking this checkout into Omarchy's user plugin directory:
 
 ```bash
-ln -s "$PWD" ~/.config/omarchy/plugins/keith.omanetwatch
+ln -s "$PWD" ~/.config/omarchy/plugins/io.github.keithnyc.omanetwatch
 omarchy-shell shell rescanPlugins
-omarchy plugin enable keith.omanetwatch right
+omarchy plugin enable io.github.keithnyc.omanetwatch right
 ```
 
 The plugin deliberately starts with two consecutive failures required before notification. This avoids alerting on a single transient timeout. The popup still shows every individual check result.
@@ -85,6 +85,19 @@ Common optional fields:
 - `omarchy-notification-send`
 
 Plugins execute unsandboxed inside `omarchy-shell`. Review local and third-party plugin code before enabling it.
+
+## Remove
+
+Remove the plugin with Omarchy:
+
+```bash
+omarchy plugin remove io.github.keithnyc.omanetwatch
+```
+
+Removal leaves your target configuration and history intact. If you no longer
+want that local data, you may separately delete
+`~/.config/omanetwatch/targets.json` and
+`~/.local/state/omanetwatch/history.json`.
 
 ## Privacy
 

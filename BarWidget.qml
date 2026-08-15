@@ -1,32 +1,76 @@
 import QtQuick
 import Quickshell
-import qs.Commons
+import Quickshell.Io
 import qs.Ui
-import "Model.js" as Model
 
-Panel {
+BarWidget {
   id: root
-  moduleName: "keith.omanetwatch"
-  ipcTarget: "keith.omanetwatch"
+  moduleName: "io.github.keithnyc.omanetwatch"
 
   readonly property var monitorService: bar && bar.shell
-    ? bar.shell.serviceFor("keith.omanetwatch")
+    ? bar.shell.serviceFor(root.moduleName)
     : null
-  readonly property var rows: monitorService ? monitorService.results : []
   readonly property int downCount: monitorService ? monitorService.downCount : 0
   readonly property bool checking: monitorService ? monitorService.checking : false
-  readonly property int historyRevision: monitorService ? monitorService.historyRevision : 0
   readonly property string icon: downCount > 0 ? "󰅚" : (checking ? "󰑓" : "")
-  property double now: Date.now()
+
+  readonly property bool opened: panelLoader.item
+    ? panelLoader.item.opened === true
+    : false
+  readonly property bool popoutSwitchClosing: panelLoader.item
+    ? panelLoader.item.popoutSwitchClosing === true
+    : false
+
+  function open() {
+    if (panelLoader.item) panelLoader.item.open()
+  }
+
+  function close() {
+    if (panelLoader.item) panelLoader.item.close()
+  }
+
+  function toggle() {
+    if (panelLoader.item) panelLoader.item.toggle()
+  }
+
+  function closeForPopoutSwitch() {
+    if (panelLoader.item) panelLoader.item.closeForPopoutSwitch()
+  }
+
+  function injectPanel() {
+    if (!panelLoader.item) return
+    panelLoader.item.bar = root.bar
+    panelLoader.item.anchorItem = button
+    panelLoader.item.hostWidget = root
+  }
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  Timer {
-    interval: 1000
-    running: root.opened
-    repeat: true
-    onTriggered: root.now = Date.now()
+  onBarChanged: injectPanel()
+
+  Loader {
+    id: panelLoader
+    active: true
+    source: Qt.resolvedUrl("Panel.qml")
+    visible: false
+    onLoaded: {
+      root.injectPanel()
+      Qt.callLater(root.injectPanel)
+    }
+  }
+
+  IpcHandler {
+    target: root.moduleName
+
+    function open(): void { root.open() }
+    function close(): void { root.close() }
+    function show(): void { root.open() }
+    function hide(): void { root.close() }
+    function toggle(): void { root.toggle() }
+    function checkAllNow(): void {
+      if (root.monitorService) root.monitorService.checkAllNow()
+    }
   }
 
   BarIconButton {
@@ -35,200 +79,12 @@ Panel {
     bar: root.bar
     text: root.icon
     active: root.downCount > 0
+    tooltipText: root.downCount > 0
+      ? root.downCount + " endpoint" + (root.downCount === 1 ? "" : "s") + " down"
+      : "OmaNetWatch"
     onPressed: function(b) {
       if (b === Qt.RightButton && root.monitorService) root.monitorService.checkAllNow()
       else root.toggle()
-    }
-  }
-
-  KeyboardPanel {
-    id: panel
-    anchorItem: button
-    owner: root
-    bar: root.bar
-    open: root.opened
-    contentWidth: panel.fittedContentWidth(Style.space(430))
-    contentHeight: panel.fittedContentHeight(content.implicitHeight, Style.space(560))
-
-    Flickable {
-      anchors.fill: parent
-      contentWidth: width
-      contentHeight: content.implicitHeight
-      clip: true
-      boundsBehavior: Flickable.StopAtBounds
-
-      Column {
-        id: content
-        width: parent.width
-        spacing: Style.space(10)
-
-        Row {
-          width: parent.width
-          spacing: Style.space(8)
-
-          Text {
-            width: parent.width - refreshButton.width - parent.spacing
-            text: root.downCount > 0
-              ? root.downCount + " endpoint" + (root.downCount === 1 ? "" : "s") + " down"
-              : (root.rows.length > 0 ? "All systems operational" : "OmaNetWatch")
-            color: root.bar ? root.bar.foreground : Color.foreground
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.subtitle
-            font.bold: true
-            anchors.verticalCenter: parent.verticalCenter
-          }
-
-          Button {
-            id: refreshButton
-            iconText: "󰑐"
-            tooltipText: "Check all now"
-            foreground: root.bar ? root.bar.foreground : Color.foreground
-            iconSpinning: root.checking
-            onClicked: if (root.monitorService) root.monitorService.checkAllNow()
-          }
-        }
-
-        Text {
-          visible: root.monitorService && root.monitorService.configError !== ""
-          width: parent.width
-          wrapMode: Text.Wrap
-          text: root.monitorService ? root.monitorService.configError : ""
-          color: Color.urgent
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
-          font.pixelSize: Style.font.bodySmall
-        }
-
-        PanelSeparator {
-          visible: root.rows.length > 0
-          foreground: root.bar ? root.bar.foreground : Color.foreground
-        }
-
-        Repeater {
-          model: root.rows
-
-          Item {
-            id: endpointRow
-            required property var modelData
-            readonly property var samples: {
-              root.historyRevision
-              return root.monitorService ? root.monitorService.historyFor(modelData.id) : []
-            }
-            width: content.width
-            height: Style.space(70)
-
-            Rectangle {
-              id: statusDot
-              width: Style.space(9)
-              height: width
-              radius: width / 2
-              anchors.left: parent.left
-              anchors.top: parent.top
-              anchors.topMargin: Style.space(7)
-              color: modelData.disabled ? Color.muted
-                : modelData.checking ? Color.accent
-                : modelData.ok ? (root.bar ? root.bar.foreground : Color.foreground)
-                : modelData.alerting ? Color.urgent
-                : Color.muted
-            }
-
-            Column {
-              anchors.left: statusDot.right
-              anchors.leftMargin: Style.space(10)
-              anchors.right: chartColumn.left
-              anchors.rightMargin: Style.space(12)
-              spacing: Style.space(2)
-
-              Row {
-                width: parent.width
-
-                Text {
-                  width: parent.width - checkedText.width - Style.space(8)
-                  text: modelData.name
-                  elide: Text.ElideRight
-                  color: root.bar ? root.bar.foreground : Color.foreground
-                  font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                  font.pixelSize: Style.font.body
-                  font.bold: true
-                }
-
-                Text {
-                  id: checkedText
-                  text: Model.relativeTime(modelData.checkedAt, root.now)
-                  color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.35)
-                  font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                  font.pixelSize: Style.font.caption
-                }
-              }
-
-              Text {
-                width: parent.width
-                text: Model.resultDetail(modelData)
-                elide: Text.ElideRight
-                color: modelData.alerting ? Color.urgent
-                  : Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.2)
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                font.pixelSize: Style.font.bodySmall
-              }
-
-              Text {
-                width: parent.width
-                text: modelData.label || ""
-                elide: Text.ElideMiddle
-                color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.5)
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                font.pixelSize: Style.font.caption
-              }
-            }
-
-            Column {
-              id: chartColumn
-              width: Style.space(118)
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(2)
-
-              Sparkline {
-                width: parent.width
-                height: Style.space(34)
-                history: endpointRow.samples
-                lineColor: root.bar ? root.bar.foreground : Color.foreground
-                failureColor: Color.urgent
-                mutedColor: Color.muted
-                opacity: modelData.disabled ? 0.45 : 1
-              }
-
-              Text {
-                width: parent.width
-                horizontalAlignment: Text.AlignRight
-                text: Model.historySummary(endpointRow.samples)
-                elide: Text.ElideLeft
-                color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.35)
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                font.pixelSize: Style.font.caption
-              }
-            }
-          }
-        }
-
-        Text {
-          visible: root.rows.length === 0 && (!root.monitorService || root.monitorService.configError === "")
-          width: parent.width
-          horizontalAlignment: Text.AlignHCenter
-          text: "No endpoints configured"
-          color: root.bar ? root.bar.foreground : Color.foreground
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
-          font.pixelSize: Style.font.body
-        }
-
-        Text {
-          width: parent.width
-          horizontalAlignment: Text.AlignHCenter
-          text: "Right-click the bar icon to check now"
-          color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.45)
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
-          font.pixelSize: Style.font.caption
-        }
-      }
     }
   }
 }
