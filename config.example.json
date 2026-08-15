@@ -1,0 +1,24 @@
+[
+  {
+    "id": "example-homepage",
+    "name": "Example homepage",
+    "type": "http",
+    "enabled": true,
+    "url": "https://example.com/",
+    "expectedStatus": 200,
+    "intervalSeconds": 60,
+    "timeoutSeconds": 5,
+    "failuresBeforeAlert": 2
+  },
+  {
+    "id": "example-ssh",
+    "name": "Example SSH",
+    "type": "tcp",
+    "enabled": true,
+    "host": "example.com",
+    "port": 22,
+    "intervalSeconds": 30,
+    "timeoutSeconds": 3,
+    "failuresBeforeAlert": 2
+  }
+]
