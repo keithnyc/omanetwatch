@@ -2,6 +2,8 @@
 
 OmaNetWatch is an Omarchy shell plugin that monitors HTTP and TCP endpoints, shows their current state in a native bar popup, and sends outage and recovery notifications.
 
+![OmaNetWatch monitoring panel](preview.png)
+
 ## Current features
 
 - One background monitoring service, even with multiple monitors
