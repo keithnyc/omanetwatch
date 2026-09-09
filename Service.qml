@@ -13,9 +13,10 @@ Item {
   readonly property string stateDir: home + "/.local/state/omanetwatch"
   readonly property string statePath: stateDir + "/history.json"
   readonly property int historyLimit: 30
-  readonly property string checkerPath: manifest && manifest.__sourceDir
-    ? manifest.__sourceDir + "/scripts/check_endpoint.py"
-    : ""
+  // Third-party manifests expose public metadata only; resolve helper files
+  // relative to this component instead of relying on host-private fields.
+  readonly property string checkerPath: String(Qt.resolvedUrl("scripts/check_endpoint.py"))
+    .replace(/^file:\/\//, "")
 
   property var targets: []
   property var results: []
