@@ -17,10 +17,20 @@ Panel {
     ? bar.shell.serviceFor("io.github.keithnyc.omanetwatch")
     : null
   readonly property var rows: monitorService ? monitorService.results : []
-  readonly property int downCount: monitorService ? monitorService.downCount : 0
+  readonly property int problemCount: monitorService ? monitorService.problemCount : 0
   readonly property bool checking: monitorService ? monitorService.checking : false
   readonly property int historyRevision: monitorService ? monitorService.historyRevision : 0
   property double now: Date.now()
+
+  function statusSummary() {
+    if (!root.monitorService || root.problemCount === 0)
+      return root.rows.length > 0 ? "All systems operational" : "OmaNetWatch"
+    var parts = []
+    if (root.monitorService.outageCount > 0) parts.push(root.monitorService.outageCount + " outage" + (root.monitorService.outageCount === 1 ? "" : "s"))
+    if (root.monitorService.degradedCount > 0) parts.push(root.monitorService.degradedCount + " degraded")
+    if (root.monitorService.unknownCount > 0) parts.push(root.monitorService.unknownCount + " unknown")
+    return parts.join(" · ")
+  }
 
   function switchPanel(direction) {
     if (root.bar && typeof root.bar.switchPanelFrom === "function")
@@ -69,9 +79,7 @@ Panel {
 
           Text {
             width: parent.width - refreshButton.width - parent.spacing
-            text: root.downCount > 0
-              ? root.downCount + " endpoint" + (root.downCount === 1 ? "" : "s") + " down"
-              : (root.rows.length > 0 ? "All systems operational" : "OmaNetWatch")
+            text: root.statusSummary()
             color: root.bar ? root.bar.foreground : Color.foreground
             font.family: root.bar ? root.bar.fontFamily : Style.font.family
             font.pixelSize: Style.font.subtitle
@@ -127,9 +135,10 @@ Panel {
               anchors.topMargin: Style.space(7)
               color: modelData.disabled ? Color.muted
                 : modelData.checking ? Color.accent
-                : modelData.ok ? (root.bar ? root.bar.foreground : Color.foreground)
-                : modelData.alerting ? Color.urgent
-                : Color.muted
+                : modelData.state === "outage" ? Color.urgent
+                : modelData.state === "degraded" ? Color.accent
+                : modelData.state === "unknown" ? Color.muted
+                : (root.bar ? root.bar.foreground : Color.foreground)
             }
 
             Column {
@@ -165,19 +174,28 @@ Panel {
                 width: parent.width
                 text: Model.resultDetail(modelData)
                 elide: Text.ElideRight
-                color: modelData.alerting ? Color.urgent
+                color: modelData.state === "outage" ? Color.urgent
+                  : modelData.state === "degraded" ? Color.accent
                   : Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.2)
                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                 font.pixelSize: Style.font.bodySmall
               }
 
               Text {
+                id: sourceText
                 width: parent.width
                 text: modelData.label || ""
                 elide: Text.ElideMiddle
                 color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.5)
                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                 font.pixelSize: Style.font.caption
+
+                MouseArea {
+                  anchors.fill: parent
+                  enabled: !!modelData.sourceUrl
+                  cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                  onClicked: Qt.openUrlExternally(modelData.sourceUrl)
+                }
               }
             }
 

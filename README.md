@@ -1,6 +1,6 @@
 # OmaNetWatch
 
-OmaNetWatch is an Omarchy shell plugin that monitors HTTP and TCP endpoints, shows their current state in a native bar popup, and sends outage and recovery notifications.
+OmaNetWatch is an Omarchy shell plugin that monitors HTTP, TCP, and structured JSON status endpoints, shows their current state in a native bar popup, and sends state-change and recovery notifications.
 
 ![OmaNetWatch monitoring panel](preview.png)
 
@@ -9,8 +9,10 @@ OmaNetWatch is an Omarchy shell plugin that monitors HTTP and TCP endpoints, sho
 - One background monitoring service, even with multiple monitors
 - HTTP checks with an expected status code
 - TCP host/port checks
+- JSON status checks with configurable field paths and health mappings
+- Operational, degraded, outage, and unknown health states
 - Independent interval, timeout, and failure threshold per endpoint
-- Alert only on the transition to down; notify again on recovery
+- Alert on non-operational state changes after the configured threshold; notify again on recovery
 - Bar summary with a detailed, theme-aware popup
 - Right-click the bar icon, or use the popup button, to check everything immediately
 - Live reload when the targets file changes
@@ -52,11 +54,11 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable io.github.keithnyc.omanetwatch right
 ```
 
-The plugin deliberately starts with two consecutive failures required before notification. This avoids alerting on a single transient timeout. The popup still shows every individual check result.
+The plugin deliberately starts with two consecutive non-operational checks required before notification. This avoids alerting on a single transient timeout or malformed response. The popup still shows every individual check result and distinguishes degraded, outage, and unknown states.
 
 ## Configuration
 
-OmaNetWatch watches `~/.config/omanetwatch/targets.json` and reloads it automatically. The root is an array containing HTTP and/or TCP targets.
+OmaNetWatch watches `~/.config/omanetwatch/targets.json` and reloads it automatically. The root is an array containing HTTP, TCP, and/or JSON targets.
 
 HTTP target fields:
 
@@ -71,6 +73,18 @@ TCP target fields:
 - `type`: `tcp`
 - `host`: DNS name or IP address
 - `port`: TCP port
+
+JSON status target fields:
+
+- `type`: `json`
+- `url`: JSON endpoint URL
+- `expectedStatus`: expected HTTP response, default `200`
+- `statusPath`: field containing the provider status. Use a dot path such as `status.indicator` or a JSON Pointer such as `/status/indicator`.
+- `statusMap`: maps exact, case-sensitive provider values to `operational`, `degraded`, `outage`, or `unknown`
+- `reasonPath`: optional field containing a short human-readable description
+- `sourceUrl`: optional status page shown in the popup; defaults to `url`
+
+Missing fields, invalid JSON, oversized responses, and unmapped status values are reported as `unknown`; they are never treated as healthy. JSON responses are limited to 1 MiB. GitHub Status and Cloudflare Status examples are included in `config.example.json`, disabled by default.
 
 Common optional fields:
 

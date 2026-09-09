@@ -10,9 +10,19 @@ BarWidget {
   readonly property var monitorService: bar && bar.shell
     ? bar.shell.serviceFor(root.moduleName)
     : null
-  readonly property int downCount: monitorService ? monitorService.downCount : 0
+  readonly property int alertingCount: monitorService ? monitorService.alertingCount : 0
+  readonly property int problemCount: monitorService ? monitorService.problemCount : 0
   readonly property bool checking: monitorService ? monitorService.checking : false
-  readonly property string icon: downCount > 0 ? "󰅚" : (checking ? "󰑓" : "")
+  readonly property string icon: alertingCount > 0 ? "󰅚" : (checking ? "󰑓" : "")
+
+  function statusSummary() {
+    if (!root.monitorService || root.problemCount === 0) return "OmaNetWatch"
+    var parts = []
+    if (root.monitorService.outageCount > 0) parts.push(root.monitorService.outageCount + " outage" + (root.monitorService.outageCount === 1 ? "" : "s"))
+    if (root.monitorService.degradedCount > 0) parts.push(root.monitorService.degradedCount + " degraded")
+    if (root.monitorService.unknownCount > 0) parts.push(root.monitorService.unknownCount + " unknown")
+    return parts.join(" · ")
+  }
 
   readonly property bool opened: panelLoader.item
     ? panelLoader.item.opened === true
@@ -78,10 +88,8 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: root.icon
-    active: root.downCount > 0
-    tooltipText: root.downCount > 0
-      ? root.downCount + " endpoint" + (root.downCount === 1 ? "" : "s") + " down"
-      : "OmaNetWatch"
+    active: root.alertingCount > 0
+    tooltipText: root.statusSummary()
     onPressed: function(b) {
       if (b === Qt.RightButton && root.monitorService) root.monitorService.checkAllNow()
       else root.toggle()

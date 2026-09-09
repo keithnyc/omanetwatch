@@ -33,9 +33,14 @@ Item {
 
   readonly property bool checking: checkProcess.running || pendingIds.length > 0
   readonly property int healthyCount: countResults("healthy")
-  readonly property int downCount: countResults("down")
+  readonly property int degradedCount: countResults("degraded")
+  readonly property int outageCount: countResults("outage")
+  readonly property int unknownCount: countResults("unknown")
+  readonly property int problemCount: degradedCount + outageCount + unknownCount
+  readonly property int alertingCount: countResults("alerting")
+  readonly property int downCount: alertingCount
   readonly property int enabledCount: countEnabledTargets()
-  readonly property int pendingCount: Math.max(0, enabledCount - healthyCount - downCount)
+  readonly property int pendingCount: Math.max(0, enabledCount - healthyCount - problemCount)
 
   function countEnabledTargets() {
     var count = 0
@@ -46,8 +51,13 @@ Item {
   function countResults(kind) {
     var count = 0
     for (var i = 0; i < results.length; i++) {
-      if (kind === "healthy" && results[i].ok) count++
-      if (kind === "down" && results[i].alerting) count++
+      var row = results[i]
+      if (row.disabled || !row.checkedAt) continue
+      if (kind === "healthy" && row.ok) count++
+      if (kind === "degraded" && row.state === "degraded") count++
+      if (kind === "outage" && row.state === "outage") count++
+      if (kind === "unknown" && row.state === "unknown") count++
+      if (kind === "alerting" && row.alerting) count++
     }
     return count
   }
@@ -119,16 +129,19 @@ Item {
         row.name = target.name
         row.type = target.type
         row.label = Model.targetLabel(target)
+        row.sourceUrl = target.sourceUrl || target.url || ""
         row.history = Model.mergeHistory(previous ? previous.history : [], persistedHistory[target.id], historyLimit)
         row.disabled = !target.enabled
         row.checking = false
         if (!target.enabled) {
           row.ok = false
+          row.state = "unknown"
           row.alerting = false
           row.consecutiveFailures = 0
           row.error = "Disabled"
         } else if (!previous || previous.disabled) {
           row.ok = false
+          row.state = "unknown"
           row.alerting = false
           row.consecutiveFailures = 0
           row.checkedAt = 0
@@ -221,9 +234,12 @@ Item {
 
   function applyResult(target, rawResult) {
     var previous = resultById(target.id)
-    var failures = rawResult.ok ? 0 : ((previous && previous.consecutiveFailures) || 0) + 1
-    var alerting = !rawResult.ok && failures >= target.failuresBeforeAlert
+    var state = Model.resultState(rawResult)
+    var operational = state === "operational"
+    var failures = operational ? 0 : ((previous && previous.consecutiveFailures) || 0) + 1
+    var alerting = !operational && failures >= target.failuresBeforeAlert
     var wasAlerting = previous ? previous.alerting === true : false
+    var previousState = previous ? Model.resultState(previous) : "unknown"
     var checkedAt = Number(rawResult.checkedAt || Date.now())
     var row = {
       id: target.id,
@@ -231,12 +247,16 @@ Item {
       type: target.type,
       label: Model.targetLabel(target),
       disabled: false,
-      ok: rawResult.ok === true,
+      ok: operational,
+      state: state,
       alerting: alerting,
       checking: false,
       statusCode: Number(rawResult.statusCode || 0),
       latencyMs: Number(rawResult.latencyMs || 0),
       error: String(rawResult.error || ""),
+      reason: String(rawResult.reason || ""),
+      statusValue: String(rawResult.statusValue || ""),
+      sourceUrl: target.sourceUrl || target.url || "",
       consecutiveFailures: failures,
       checkedAt: checkedAt
     }
@@ -261,17 +281,27 @@ Item {
     due[target.id] = Date.now() + target.intervalSeconds * 1000
     nextDue = due
 
-    if (alerting && !wasAlerting) {
+    if (alerting && (!wasAlerting || previousState !== state)) {
+      var alertTitle = target.name + " is down"
+      if (target.type === "json") {
+        if (state === "degraded") alertTitle = target.name + " is degraded"
+        else if (state === "outage") alertTitle = target.name + " reports an outage"
+        else alertTitle = target.name + " status is unknown"
+      }
+      var alertBody = row.error || Model.resultDetail(row)
+      if (target.type === "json" && row.sourceUrl) alertBody += "\n" + row.sourceUrl
       sendNotification(
-        target.name + " is down",
-        row.error || Model.resultDetail(row),
+        alertTitle,
+        alertBody,
         "critical",
         "󰅚"
       )
-    } else if (row.ok && wasAlerting) {
+    } else if (operational && wasAlerting) {
+      var recoveryBody = Model.resultDetail(row)
+      if (target.type === "json" && row.sourceUrl) recoveryBody += "\n" + row.sourceUrl
       sendNotification(
         target.name + " recovered",
-        Model.resultDetail(row),
+        recoveryBody,
         "normal",
         "󰄬"
       )
