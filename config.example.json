@@ -20,5 +20,45 @@
     "intervalSeconds": 30,
     "timeoutSeconds": 3,
     "failuresBeforeAlert": 2
+  },
+  {
+    "id": "github-status",
+    "name": "GitHub Status",
+    "type": "json",
+    "enabled": false,
+    "url": "https://www.githubstatus.com/api/v2/status.json",
+    "statusPath": "status.indicator",
+    "reasonPath": "status.description",
+    "sourceUrl": "https://www.githubstatus.com/",
+    "statusMap": {
+      "none": "operational",
+      "minor": "degraded",
+      "major": "outage",
+      "critical": "outage",
+      "maintenance": "degraded"
+    },
+    "intervalSeconds": 60,
+    "timeoutSeconds": 5,
+    "failuresBeforeAlert": 2
+  },
+  {
+    "id": "cloudflare-status",
+    "name": "Cloudflare Status",
+    "type": "json",
+    "enabled": false,
+    "url": "https://www.cloudflarestatus.com/api/v2/status.json",
+    "statusPath": "/status/indicator",
+    "reasonPath": "/status/description",
+    "sourceUrl": "https://www.cloudflarestatus.com/",
+    "statusMap": {
+      "none": "operational",
+      "minor": "degraded",
+      "major": "outage",
+      "critical": "outage",
+      "maintenance": "degraded"
+    },
+    "intervalSeconds": 60,
+    "timeoutSeconds": 5,
+    "failuresBeforeAlert": 2
   }
 ]

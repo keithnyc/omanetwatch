@@ -17,10 +17,72 @@ Panel {
     ? bar.shell.serviceFor("io.github.keithnyc.omanetwatch")
     : null
   readonly property var rows: monitorService ? monitorService.results : []
-  readonly property int downCount: monitorService ? monitorService.downCount : 0
+  readonly property int problemCount: monitorService ? monitorService.problemCount : 0
   readonly property bool checking: monitorService ? monitorService.checking : false
   readonly property int historyRevision: monitorService ? monitorService.historyRevision : 0
   property double now: Date.now()
+  property bool manageMode: false
+  property bool editorOpen: false
+  property string deleteTargetId: ""
+  property string deleteTargetName: ""
+  property string mutationError: ""
+
+  onOpenedChanged: if (!opened) {
+    manageMode = false
+    editorOpen = false
+    deleteConfirm.opened = false
+  }
+
+  function startAdd() {
+    mutationError = ""
+    editorOpen = true
+    manageMode = false
+    Qt.callLater(function() { targetEditor.load(null, "") })
+  }
+
+  function startEdit(id) {
+    if (!monitorService) return
+    var target = monitorService.targetConfig(id)
+    if (!target) {
+      mutationError = "Target no longer exists"
+      return
+    }
+    mutationError = ""
+    editorOpen = true
+    manageMode = false
+    Qt.callLater(function() { targetEditor.load(target, id) })
+  }
+
+  function saveEditor(target, originalId) {
+    if (!monitorService) return
+    var error = monitorService.saveTarget(originalId, target)
+    targetEditor.errorText = error
+    if (!error) editorOpen = false
+  }
+
+  function askRemove(id, name) {
+    deleteTargetId = id
+    deleteTargetName = name
+    deleteConfirm.opened = true
+  }
+
+  function confirmRemove() {
+    deleteConfirm.opened = false
+    if (!monitorService || !deleteTargetId) return
+    mutationError = monitorService.removeTarget(deleteTargetId)
+    deleteTargetId = ""
+    deleteTargetName = ""
+  }
+
+  function statusSummary() {
+    if (!root.monitorService || root.problemCount === 0)
+      return root.rows.length > 0 ? "All systems operational" : "OmaNetWatch"
+    var parts = []
+    if (root.monitorService.outageCount > 0) parts.push(root.monitorService.outageCount + " outage" + (root.monitorService.outageCount === 1 ? "" : "s"))
+    if (root.monitorService.degradedCount > 0) parts.push(root.monitorService.degradedCount + " degraded")
+    if (root.monitorService.unknownCount > 0) parts.push(root.monitorService.unknownCount + " unknown")
+    return parts.join(" · ")
+  }
 
   function switchPanel(direction) {
     if (root.bar && typeof root.bar.switchPanelFrom === "function")
@@ -48,7 +110,10 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      onCloseRequested: root.close()
+      onCloseRequested: {
+        if (root.editorOpen) root.editorOpen = false
+        else root.close()
+      }
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
       Flickable {
@@ -64,19 +129,37 @@ Panel {
           spacing: Style.space(10)
 
         Row {
+          visible: !root.editorOpen
           width: parent.width
           spacing: Style.space(8)
 
           Text {
-            width: parent.width - refreshButton.width - parent.spacing
-            text: root.downCount > 0
-              ? root.downCount + " endpoint" + (root.downCount === 1 ? "" : "s") + " down"
-              : (root.rows.length > 0 ? "All systems operational" : "OmaNetWatch")
+            width: parent.width - addButton.width - manageButton.width - refreshButton.width - parent.spacing * 3
+            text: root.statusSummary()
             color: root.bar ? root.bar.foreground : Color.foreground
             font.family: root.bar ? root.bar.fontFamily : Style.font.family
             font.pixelSize: Style.font.subtitle
             font.bold: true
             anchors.verticalCenter: parent.verticalCenter
+          }
+
+          Button {
+            id: addButton
+            iconText: "+"
+            tooltipText: "Add service"
+            foreground: root.bar ? root.bar.foreground : Color.foreground
+            focusable: true
+            onClicked: root.startAdd()
+          }
+
+          Button {
+            id: manageButton
+            iconText: "󰏫"
+            tooltipText: root.manageMode ? "Done managing" : "Manage services"
+            selected: root.manageMode
+            foreground: root.bar ? root.bar.foreground : Color.foreground
+            focusable: true
+            onClicked: root.manageMode = !root.manageMode
           }
 
           Button {
@@ -89,8 +172,19 @@ Panel {
           }
         }
 
+        TargetEditor {
+          id: targetEditor
+          visible: root.editorOpen
+          width: parent.width
+          foreground: root.bar ? root.bar.foreground : Color.foreground
+          accent: Color.accent
+          fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+          onSaveRequested: function(target, originalId) { root.saveEditor(target, originalId) }
+          onCanceled: root.editorOpen = false
+        }
+
         Text {
-          visible: root.monitorService && root.monitorService.configError !== ""
+          visible: !root.editorOpen && root.monitorService && root.monitorService.configError !== ""
           width: parent.width
           wrapMode: Text.Wrap
           text: root.monitorService ? root.monitorService.configError : ""
@@ -99,13 +193,23 @@ Panel {
           font.pixelSize: Style.font.bodySmall
         }
 
+        Text {
+          visible: !root.editorOpen && root.mutationError !== ""
+          width: parent.width
+          wrapMode: Text.Wrap
+          text: root.mutationError
+          color: Color.urgent
+          font.family: root.bar ? root.bar.fontFamily : Style.font.family
+          font.pixelSize: Style.font.bodySmall
+        }
+
         PanelSeparator {
-          visible: root.rows.length > 0
+          visible: !root.editorOpen && root.rows.length > 0
           foreground: root.bar ? root.bar.foreground : Color.foreground
         }
 
         Repeater {
-          model: root.rows
+          model: root.editorOpen ? [] : root.rows
 
           Item {
             id: endpointRow
@@ -127,9 +231,10 @@ Panel {
               anchors.topMargin: Style.space(7)
               color: modelData.disabled ? Color.muted
                 : modelData.checking ? Color.accent
-                : modelData.ok ? (root.bar ? root.bar.foreground : Color.foreground)
-                : modelData.alerting ? Color.urgent
-                : Color.muted
+                : modelData.state === "outage" ? Color.urgent
+                : modelData.state === "degraded" ? Color.accent
+                : modelData.state === "unknown" ? Color.muted
+                : (root.bar ? root.bar.foreground : Color.foreground)
             }
 
             Column {
@@ -165,24 +270,34 @@ Panel {
                 width: parent.width
                 text: Model.resultDetail(modelData)
                 elide: Text.ElideRight
-                color: modelData.alerting ? Color.urgent
+                color: modelData.state === "outage" ? Color.urgent
+                  : modelData.state === "degraded" ? Color.accent
                   : Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.2)
                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                 font.pixelSize: Style.font.bodySmall
               }
 
               Text {
+                id: sourceText
                 width: parent.width
                 text: modelData.label || ""
                 elide: Text.ElideMiddle
                 color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.5)
                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                 font.pixelSize: Style.font.caption
+
+                MouseArea {
+                  anchors.fill: parent
+                  enabled: !!modelData.sourceUrl
+                  cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                  onClicked: Qt.openUrlExternally(modelData.sourceUrl)
+                }
               }
             }
 
             Column {
               id: chartColumn
+              visible: !root.manageMode
               width: Style.space(118)
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
@@ -208,20 +323,59 @@ Panel {
                 font.pixelSize: Style.font.caption
               }
             }
+
+            Row {
+              visible: root.manageMode
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(5)
+
+              PanelActionButton {
+                iconText: modelData.disabled ? "󰐕" : "󰒘"
+                tooltipText: modelData.disabled ? "Enable" : "Disable"
+                foreground: root.bar ? root.bar.foreground : Color.foreground
+                fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+                focusable: true
+                onClicked: {
+                  if (root.monitorService)
+                    root.mutationError = root.monitorService.setTargetEnabled(modelData.id, modelData.disabled)
+                }
+              }
+
+              PanelActionButton {
+                iconText: "󰏫"
+                tooltipText: "Edit"
+                foreground: root.bar ? root.bar.foreground : Color.foreground
+                fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+                focusable: true
+                onClicked: root.startEdit(modelData.id)
+              }
+
+              PanelActionButton {
+                iconText: "󰆴"
+                tooltipText: "Remove"
+                foreground: root.bar ? root.bar.foreground : Color.foreground
+                hoverColor: Color.urgent
+                fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+                focusable: true
+                onClicked: root.askRemove(modelData.id, modelData.name)
+              }
+            }
           }
         }
 
         Text {
-          visible: root.rows.length === 0 && (!root.monitorService || root.monitorService.configError === "")
+          visible: !root.editorOpen && root.rows.length === 0 && (!root.monitorService || root.monitorService.configError === "")
           width: parent.width
           horizontalAlignment: Text.AlignHCenter
-          text: "No endpoints configured"
+          text: "No services configured · press + to add one"
           color: root.bar ? root.bar.foreground : Color.foreground
           font.family: root.bar ? root.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.body
         }
 
         Text {
+          visible: !root.editorOpen
           width: parent.width
           horizontalAlignment: Text.AlignHCenter
           text: "Right-click the bar icon to check now"
@@ -230,6 +384,19 @@ Panel {
           font.pixelSize: Style.font.caption
         }
         }
+      }
+
+      ConfirmDialog {
+        id: deleteConfirm
+        anchors.fill: parent
+        z: 20
+        message: "Remove " + root.deleteTargetName + "?"
+        cancelText: "Cancel"
+        confirmText: "Remove"
+        foreground: root.bar ? root.bar.foreground : Color.foreground
+        background: Color.popups.background
+        onCanceled: opened = false
+        onConfirmed: root.confirmRemove()
       }
     }
   }

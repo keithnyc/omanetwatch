@@ -6,11 +6,50 @@ function positiveInteger(value, fallback) {
   return Math.round(parsed)
 }
 
+function isCanonicalState(value) {
+  return value === "operational" || value === "degraded" || value === "outage" || value === "unknown"
+}
+
+function canonicalState(value) {
+  var state = String(value || "").toLowerCase()
+  return isCanonicalState(state) ? state : "unknown"
+}
+
+function stateLabel(value) {
+  var state = canonicalState(value)
+  if (state === "operational") return "Operational"
+  if (state === "degraded") return "Degraded"
+  if (state === "outage") return "Outage"
+  return "Unknown"
+}
+
+function resultState(result) {
+  if (!result) return "unknown"
+  if (result.state !== undefined) return canonicalState(result.state)
+  return result.ok === true ? "operational" : "outage"
+}
+
+function mergeTargetConfig(existing, input) {
+  var target = {}
+  var key
+  if (existing && typeof existing === "object")
+    for (key in existing) target[key] = existing[key]
+
+  var known = ["id", "name", "type", "enabled", "url", "expectedStatus", "host", "port",
+               "statusPath", "statusMap", "reasonPath", "sourceUrl", "intervalSeconds",
+               "timeoutSeconds", "failuresBeforeAlert"]
+  for (var i = 0; i < known.length; i++) delete target[known[i]]
+  if (input && typeof input === "object")
+    for (key in input) target[key] = input[key]
+  return target
+}
+
 function normalizeTarget(raw, index) {
   if (!raw || typeof raw !== "object") throw new Error("target " + (index + 1) + " must be an object")
 
   var type = String(raw.type || "http").toLowerCase()
-  if (type !== "http" && type !== "tcp") throw new Error("target " + (index + 1) + " has unsupported type '" + type + "'")
+  if (type !== "http" && type !== "tcp" && type !== "json")
+    throw new Error("target " + (index + 1) + " has unsupported type '" + type + "'")
 
   var name = String(raw.name || "").trim()
   if (!name) throw new Error("target " + (index + 1) + " needs a name")
@@ -29,10 +68,29 @@ function normalizeTarget(raw, index) {
 
   if (!target.id) target.id = "target-" + (index + 1)
 
-  if (type === "http") {
+  if (type === "http" || type === "json") {
     target.url = String(raw.url || "").trim()
     target.expectedStatus = positiveInteger(raw.expectedStatus, 200)
     if (!/^https?:\/\//.test(target.url)) throw new Error(name + " needs an http:// or https:// URL")
+    if (type === "json") {
+      target.statusPath = String(raw.statusPath || "").trim()
+      if (!target.statusPath) throw new Error(name + " needs a statusPath")
+      if (!raw.statusMap || typeof raw.statusMap !== "object" || Array.isArray(raw.statusMap))
+        throw new Error(name + " needs a statusMap object")
+      target.statusMap = {}
+      var mapped = 0
+      for (var statusValue in raw.statusMap) {
+        var mappedState = String(raw.statusMap[statusValue] || "").toLowerCase()
+        if (!isCanonicalState(mappedState))
+          throw new Error(name + " maps '" + statusValue + "' to unsupported state '" + mappedState + "'")
+        target.statusMap[String(statusValue)] = mappedState
+        mapped++
+      }
+      if (mapped === 0) throw new Error(name + " needs at least one statusMap entry")
+      target.reasonPath = String(raw.reasonPath || "").trim()
+      target.sourceUrl = String(raw.sourceUrl || target.url).trim()
+      if (!/^https?:\/\//.test(target.sourceUrl)) throw new Error(name + " needs an http:// or https:// sourceUrl")
+    }
   } else {
     target.host = String(raw.host || "").trim()
     target.port = positiveInteger(raw.port, 0)
@@ -57,7 +115,8 @@ function normalizeTargets(raw) {
 
 function targetLabel(target) {
   if (!target) return ""
-  return target.type === "tcp" ? target.host + ":" + target.port : target.url
+  if (target.type === "tcp") return target.host + ":" + target.port
+  return target.sourceUrl || target.url
 }
 
 function resultDetail(result) {
@@ -65,8 +124,16 @@ function resultDetail(result) {
   if (result.disabled) return "Disabled"
   if (result.checking) return "Checking…"
   if (result.ok) {
+    if (result.type === "json") {
+      var healthyReason = String(result.reason || "").trim()
+      return "Operational" + (healthyReason ? " · " + healthyReason : "") + " · " + result.latencyMs + " ms"
+    }
     if (result.type === "http") return "HTTP " + result.statusCode + " · " + result.latencyMs + " ms"
     return "Connected · " + result.latencyMs + " ms"
+  }
+  if (result.type === "json") {
+    var detail = String(result.reason || result.error || "").trim()
+    return stateLabel(resultState(result)) + (detail ? " · " + detail : "")
   }
   return result.error || "Check failed"
 }
@@ -94,6 +161,7 @@ function normalizeHistory(raw, limit) {
     samples.push({
       checkedAt: checkedAt,
       ok: sample.ok === true,
+      state: resultState(sample),
       latencyMs: Math.max(0, Number(sample.latencyMs || 0)),
       statusCode: Math.max(0, Number(sample.statusCode || 0))
     })
@@ -116,6 +184,7 @@ function appendHistory(history, result, limit) {
   return mergeHistory(history, [{
     checkedAt: Number(result.checkedAt || Date.now()),
     ok: result.ok === true,
+    state: resultState(result),
     latencyMs: Math.max(0, Number(result.latencyMs || 0)),
     statusCode: Math.max(0, Number(result.statusCode || 0))
   }], limit)
