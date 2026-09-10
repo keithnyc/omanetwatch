@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import hashlib
+from html.parser import HTMLParser
 import json
+import re
 import socket
 import ssl
 import sys
@@ -14,6 +16,40 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 MAX_RESPONSE_BYTES = 1024 * 1024
+
+
+class FeedTextParser(HTMLParser):
+    """Turn the small HTML fragments commonly embedded in feeds into lines."""
+
+    BLOCK_TAGS = {"br", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "p", "hr"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() in self.BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in self.BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+def feed_item_status(content: str) -> str:
+    """Extract an explicitly labelled incident status from an item body."""
+    parser = FeedTextParser()
+    parser.feed(content)
+    parser.close()
+    for line in "".join(parser.parts).splitlines():
+        match = re.fullmatch(r"\s*status\s*:\s*(.{1,64}?)\s*", line, re.IGNORECASE)
+        if match:
+            value = " ".join(match.group(1).split())
+            return value.title() if value.isupper() or value.islower() else value
+    return ""
 
 
 def elapsed_ms(started: float) -> int:
@@ -216,6 +252,7 @@ def parse_feed(body: bytes) -> tuple[str, list[dict]]:
         link = item_link(element)[:2048]
         published = child_text(element, "updated", "pubdate", "published", "date")[:256]
         content = child_text(element, "content", "description", "summary", "encoded")
+        item_status = feed_item_status(content)
         item_id = child_text(element, "guid", "id") or link
         if not item_id:
             item_id = hashlib.sha256((title + "\x1f" + published).encode()).hexdigest()
@@ -227,6 +264,7 @@ def parse_feed(body: bytes) -> tuple[str, list[dict]]:
             "title": title or "Untitled feed item",
             "link": link,
             "published": published,
+            "status": item_status,
             "fingerprint": fingerprint,
         })
     return feed_title[:512], items
