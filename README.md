@@ -1,6 +1,6 @@
 # OmaNetWatch
 
-OmaNetWatch is an Omarchy shell plugin that monitors HTTP, TCP, and structured JSON status endpoints, shows their current state in a native bar popup, and sends state-change and recovery notifications.
+OmaNetWatch is an Omarchy shell plugin that monitors HTTP, TCP, structured JSON status endpoints, and RSS/Atom incident feeds from a native bar popup.
 
 ![OmaNetWatch monitoring panel](preview.png)
 
@@ -10,6 +10,7 @@ OmaNetWatch is an Omarchy shell plugin that monitors HTTP, TCP, and structured J
 - HTTP checks with an expected status code
 - TCP host/port checks
 - JSON status checks with configurable field paths and health mappings
+- RSS/Atom incident updates with quiet first-run baselining and persistent deduplication
 - Operational, degraded, outage, and unknown health states
 - Native add, edit, enable/disable, and remove controls in the popup
 - Independent interval, timeout, and failure threshold per endpoint
@@ -57,11 +58,11 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable io.github.keithnyc.omanetwatch right
 ```
 
-The plugin deliberately starts with two consecutive non-operational checks required before notification. This avoids alerting on a single transient timeout or malformed response. The popup still shows every individual check result and distinguishes degraded, outage, and unknown states.
+Health checks deliberately start with two consecutive non-operational checks required before notification. This avoids alerting on a single transient timeout or malformed response. Feed targets notify on new or meaningfully updated items after establishing a quiet baseline on their first successful check.
 
 ## Configuration
 
-OmaNetWatch watches `~/.config/omanetwatch/targets.json` and reloads it automatically. The root is an array containing HTTP, TCP, and/or JSON targets.
+OmaNetWatch watches `~/.config/omanetwatch/targets.json` and reloads it automatically. The root is an array containing HTTP, TCP, JSON, and/or feed targets.
 
 HTTP target fields:
 
@@ -87,7 +88,16 @@ JSON status target fields:
 - `reasonPath`: optional field containing a short human-readable description
 - `sourceUrl`: optional status page shown in the popup; defaults to `url`
 
-Missing fields, invalid JSON, oversized responses, and unmapped status values are reported as `unknown`; they are never treated as healthy. JSON responses are limited to 1 MiB. GitHub Status and Cloudflare Status examples are included in `config.example.json`, disabled by default.
+RSS/Atom feed target fields:
+
+- `type`: `feed`
+- `url`: public RSS or Atom feed URL
+- `expectedStatus`: expected HTTP response, default `200`
+- `sourceUrl`: optional public status page; individual items use their own links when available
+
+The first successful feed check records existing items without notifying. Later checks notify for new item IDs and for changed content on known IDs. Up to 200 fingerprints per feed are retained across shell restarts, and the latest item remains visible in the popup. Feed activity is separate from current service health: an incident post does not change operational/degraded/outage counts.
+
+Missing fields, invalid JSON/XML, oversized responses, and unmapped status values are reported as `unknown`; they are never treated as healthy. JSON and feed responses are limited to 1 MiB. GitHub Status, Cloudflare Status, and xAI incident-feed examples are included in `config.example.json`, disabled by default.
 
 Common optional fields:
 

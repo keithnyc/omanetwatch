@@ -30,6 +30,7 @@ Item {
   property string checkError: ""
   property double lastResultAt: 0
   property var persistedHistory: ({})
+  property var feedStates: ({})
   property bool stateReady: false
   property int historyRevision: 0
 
@@ -42,7 +43,16 @@ Item {
   readonly property int alertingCount: countResults("alerting")
   readonly property int downCount: alertingCount
   readonly property int enabledCount: countEnabledTargets()
-  readonly property int pendingCount: Math.max(0, enabledCount - healthyCount - problemCount)
+  readonly property int enabledHealthCount: countEnabledHealthTargets()
+  readonly property int pendingCount: Math.max(0, enabledHealthCount - healthyCount - problemCount)
+  readonly property int feedCount: countTargetType("feed")
+  readonly property int healthTargetCount: targets.length - feedCount
+
+  function countTargetType(type) {
+    var count = 0
+    for (var i = 0; i < targets.length; i++) if (targets[i].type === type) count++
+    return count
+  }
 
   function countEnabledTargets() {
     var count = 0
@@ -50,10 +60,18 @@ Item {
     return count
   }
 
+  function countEnabledHealthTargets() {
+    var count = 0
+    for (var i = 0; i < targets.length; i++)
+      if (targets[i].enabled && targets[i].type !== "feed") count++
+    return count
+  }
+
   function countResults(kind) {
     var count = 0
     for (var i = 0; i < results.length; i++) {
       var row = results[i]
+      if (row.type === "feed") continue
       if (row.disabled || !row.checkedAt) continue
       if (kind === "healthy" && row.ok) count++
       if (kind === "degraded" && row.state === "degraded") count++
@@ -142,13 +160,16 @@ Item {
 
   function loadState(raw) {
     var stored = {}
+    var storedFeeds = {}
     try {
       var parsed = JSON.parse(String(raw || "{}"))
       if (parsed && parsed.targets && typeof parsed.targets === "object") stored = parsed.targets
+      if (parsed && parsed.feeds && typeof parsed.feeds === "object") storedFeeds = parsed.feeds
     } catch (error) {
       console.warn("omanetwatch: history state error:", String(error))
     }
     persistedHistory = stored
+    feedStates = clone(storedFeeds)
     stateReady = true
 
     var next = []
@@ -156,7 +177,15 @@ Item {
       var row = results[i]
       var copy = {}
       for (var key in row) copy[key] = row[key]
-      copy.history = Model.mergeHistory(row.history, stored[row.id], historyLimit)
+      if (row.type === "feed") {
+        var feed = storedFeeds[row.id]
+        var latest = feed && feed.latest ? feed.latest : null
+        copy.latestItemTitle = latest ? String(latest.title || "") : ""
+        copy.latestItemLink = latest ? String(latest.link || "") : ""
+        copy.latestItemPublished = latest ? String(latest.published || "") : ""
+        copy.label = latest && latest.link ? String(latest.link) : copy.label
+        copy.sourceUrl = latest && latest.link ? String(latest.link) : copy.sourceUrl
+      } else copy.history = Model.mergeHistory(row.history, stored[row.id], historyLimit)
       next.push(copy)
     }
     results = next
@@ -165,12 +194,17 @@ Item {
 
   function historyPayload() {
     var stored = {}
+    var feeds = {}
     for (var i = 0; i < results.length; i++) {
       var row = results[i]
+      if (row.type === "feed") {
+        if (feedStates[row.id]) feeds[row.id] = feedStates[row.id]
+        continue
+      }
       var history = Model.normalizeHistory(row.history, historyLimit)
       if (history.length > 0) stored[row.id] = history
     }
-    return { version: 1, targets: stored }
+    return { version: 2, targets: stored, feeds: feeds }
   }
 
   function persistHistory() {
@@ -197,6 +231,13 @@ Item {
         row.history = Model.mergeHistory(previous ? previous.history : [], persistedHistory[target.id], historyLimit)
         row.disabled = !target.enabled
         row.checking = false
+        if (target.type === "feed") {
+          var savedFeed = feedStates[target.id]
+          var latest = savedFeed && savedFeed.latest ? savedFeed.latest : null
+          row.latestItemTitle = latest ? String(latest.title || "") : ""
+          row.latestItemLink = latest ? String(latest.link || "") : ""
+          row.latestItemPublished = latest ? String(latest.published || "") : ""
+        }
         if (!target.enabled) {
           row.ok = false
           row.state = "unknown"
@@ -219,6 +260,7 @@ Item {
       nextDue = ({})
       pendingIds = []
       configError = ""
+      if (stateReady) stateWriteTimer.restart()
       checkAllNow()
     } catch (error) {
       configError = String(error)
@@ -230,6 +272,7 @@ Item {
   }
 
   function enqueueDue() {
+    if (!stateReady) return
     var now = Date.now()
     var queued = pendingIds.slice(0)
     for (var i = 0; i < targets.length; i++) {
@@ -297,6 +340,10 @@ Item {
   }
 
   function applyResult(target, rawResult) {
+    if (target.type === "feed") {
+      applyFeedResult(target, rawResult)
+      return
+    }
     var previous = resultById(target.id)
     var state = Model.resultState(rawResult)
     var operational = state === "operational"
@@ -369,6 +416,82 @@ Item {
         "normal",
         "󰄬"
       )
+    }
+  }
+
+  function applyFeedResult(target, rawResult) {
+    var checkedAt = Number(rawResult.checkedAt || Date.now())
+    var feedOk = rawResult.ok === true
+    var update = null
+    var latest = null
+    if (feedOk) {
+      var priorState = feedStates[target.id]
+      if (!priorState || String(priorState.sourceUrl || "") !== target.url) priorState = null
+      update = Model.updateFeedState(priorState, rawResult.items, 200)
+      update.state.sourceUrl = target.url
+      var states = clone(feedStates)
+      states[target.id] = update.state
+      feedStates = states
+      latest = update.state.latest
+    } else {
+      var saved = feedStates[target.id]
+      latest = saved && saved.latest ? saved.latest : null
+    }
+
+    var row = {
+      id: target.id,
+      name: target.name,
+      type: "feed",
+      label: latest && latest.link ? String(latest.link) : Model.targetLabel(target),
+      disabled: false,
+      ok: feedOk,
+      state: feedOk ? "operational" : "unknown",
+      alerting: false,
+      checking: false,
+      statusCode: Number(rawResult.statusCode || 0),
+      latencyMs: Number(rawResult.latencyMs || 0),
+      error: String(rawResult.error || ""),
+      reason: "",
+      sourceUrl: latest && latest.link ? String(latest.link) : (target.sourceUrl || target.url || ""),
+      consecutiveFailures: 0,
+      checkedAt: checkedAt,
+      latestItemTitle: latest ? String(latest.title || "") : "",
+      latestItemLink: latest ? String(latest.link || "") : "",
+      latestItemPublished: latest ? String(latest.published || "") : "",
+      history: []
+    }
+
+    var next = []
+    var replaced = false
+    for (var i = 0; i < results.length; i++) {
+      if (results[i].id === target.id) {
+        next.push(row)
+        replaced = true
+      } else next.push(results[i])
+    }
+    if (!replaced) next.push(row)
+    results = next
+    lastResultAt = checkedAt
+    historyRevision++
+    stateWriteTimer.restart()
+
+    var due = {}
+    for (var key in nextDue) due[key] = nextDue[key]
+    due[target.id] = Date.now() + target.intervalSeconds * 1000
+    nextDue = due
+
+    if (update) {
+      var notifyLimit = Math.min(update.changes.length, 5)
+      for (var changeIndex = 0; changeIndex < notifyLimit; changeIndex++) {
+        var change = update.changes[changeIndex]
+        var item = change.item || ({})
+        var title = target.name + (change.kind === "updated" ? ": incident updated" : ": new incident")
+        var body = String(item.title || "Untitled feed item")
+        if (item.link) body += "\n" + String(item.link)
+        sendNotification(title, body, "normal", "󰑫")
+      }
+      if (update.changes.length > notifyLimit)
+        sendNotification(target.name + ": more incident activity", String(update.changes.length - notifyLimit) + " additional updates", "normal", "󰑫")
     }
   }
 

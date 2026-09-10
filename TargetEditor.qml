@@ -125,6 +125,9 @@ Column {
         return null
       }
       target.statusMap = mapping
+    } else if (targetType === "feed") {
+      var feedSourceUrl = sourceUrlField.text.trim()
+      if (feedSourceUrl) target.sourceUrl = feedSourceUrl
     }
     return target
   }
@@ -206,7 +209,8 @@ Column {
     options: [
       { value: "http", label: "HTTP reachability" },
       { value: "tcp", label: "TCP port" },
-      { value: "json", label: "JSON service status" }
+      { value: "json", label: "JSON service status" },
+      { value: "feed", label: "RSS/Atom incident feed" }
     ]
     foreground: root.foreground
     accent: root.accent
@@ -214,6 +218,10 @@ Column {
     onChanged: function(value) {
       root.targetType = value
       if (!root.initializing && value === "json" && statusPathField.text === "") root.applyStatuspageDefaults()
+      if (!root.initializing && value === "feed" && root.intervalSeconds === 60) {
+        root.intervalSeconds = 300
+        intervalField.value = 300
+      }
     }
   }
 
@@ -221,7 +229,9 @@ Column {
     id: enabledToggle
     width: parent.width
     label: "Enabled"
-    description: "Run checks and send state-change notifications"
+    description: root.targetType === "feed"
+      ? "Poll the feed and notify about new or updated items"
+      : "Run checks and send state-change notifications"
     checked: root.targetEnabled
     foreground: root.foreground
     accent: root.accent
@@ -233,8 +243,8 @@ Column {
     id: urlField
     visible: root.targetType !== "tcp"
     width: parent.width
-    label: root.targetType === "json" ? "JSON endpoint URL" : "URL"
-    placeholderText: "https://status.example.com/api/v2/status.json"
+    label: root.targetType === "json" ? "JSON endpoint URL" : (root.targetType === "feed" ? "RSS/Atom feed URL" : "URL")
+    placeholderText: root.targetType === "feed" ? "https://status.example.com/feed.xml" : "https://status.example.com/api/v2/status.json"
     foreground: root.foreground
     accent: root.accent
     fontFamily: root.fontFamily
@@ -324,9 +334,9 @@ Column {
 
   FormTextField {
     id: sourceUrlField
-    visible: root.targetType === "json"
+    visible: root.targetType === "json" || root.targetType === "feed"
     width: parent.width
-    label: "Public status page (optional)"
+    label: root.targetType === "feed" ? "Status page (optional)" : "Public status page (optional)"
     placeholderText: "https://status.example.com/"
     foreground: root.foreground
     accent: root.accent
@@ -392,7 +402,7 @@ Column {
 
     NumberField {
       id: intervalField
-      width: (parent.width - parent.spacing) / 2
+      width: root.targetType === "feed" ? parent.width : (parent.width - parent.spacing) / 2
       fieldWidth: width
       label: "Interval (seconds)"
       from: 5
@@ -406,7 +416,8 @@ Column {
 
     NumberField {
       id: failuresField
-      width: (parent.width - parent.spacing) / 2
+      visible: root.targetType !== "feed"
+      width: visible ? (parent.width - parent.spacing) / 2 : 0
       fieldWidth: width
       label: "Checks before alert"
       from: 1

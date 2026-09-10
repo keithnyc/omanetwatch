@@ -37,6 +37,13 @@ const jsonTarget = {
   statusMap: {none: "operational", minor: "degraded", major: "outage"},
 }
 
+const feedTarget = {
+  name: "xAI incidents",
+  type: "feed",
+  url: "https://status.x.ai/feed.xml",
+  sourceUrl: "https://status.x.ai/",
+}
+
 test("normalizes a JSON status target", () => {
   const target = model.normalizeTarget(jsonTarget, 0)
   equal(target.type, "json")
@@ -70,6 +77,33 @@ test("editor updates preserve unknown fields", () => {
   equal(merged.type, "tcp")
   equal(merged.url, undefined)
   equal(merged.host, "example.com")
+})
+
+test("normalizes an incident feed target", () => {
+  const target = model.normalizeTarget(feedTarget, 0)
+  equal(target.type, "feed")
+  equal(model.targetLabel(target), "https://status.x.ai/")
+})
+
+test("first feed check establishes a quiet baseline", () => {
+  const item = {id: "one", fingerprint: "a", title: "Incident", link: "https://status.example/one"}
+  const update = model.updateFeedState(null, [item], 200)
+  equal(update.changes.length, 0)
+  equal(update.state.initialized, true)
+  equal(update.state.latest.title, "Incident")
+})
+
+test("feed state detects new and updated items", () => {
+  const original = {id: "one", fingerprint: "a", title: "Incident"}
+  const prior = model.updateFeedState(null, [original], 200).state
+  equal(model.updateFeedState(prior, [original], 200).changes.length, 0)
+  const update = model.updateFeedState(prior, [
+    {id: "two", fingerprint: "b", title: "New incident"},
+    {id: "one", fingerprint: "c", title: "Incident updated"}
+  ], 200)
+  equal(update.changes.length, 2)
+  equal(update.changes[0].kind, "new")
+  equal(update.changes[1].kind, "updated")
 })
 
 if (failures) process.exit(1)
