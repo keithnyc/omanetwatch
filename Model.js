@@ -29,6 +29,21 @@ function resultState(result) {
   return result.ok === true ? "operational" : "outage"
 }
 
+function mergeTargetConfig(existing, input) {
+  var target = {}
+  var key
+  if (existing && typeof existing === "object")
+    for (key in existing) target[key] = existing[key]
+
+  var known = ["id", "name", "type", "enabled", "url", "expectedStatus", "host", "port",
+               "statusPath", "statusMap", "reasonPath", "sourceUrl", "intervalSeconds",
+               "timeoutSeconds", "failuresBeforeAlert"]
+  for (var i = 0; i < known.length; i++) delete target[known[i]]
+  if (input && typeof input === "object")
+    for (key in input) target[key] = input[key]
+  return target
+}
+
 function normalizeTarget(raw, index) {
   if (!raw || typeof raw !== "object") throw new Error("target " + (index + 1) + " must be an object")
 

@@ -11,6 +11,7 @@ OmaNetWatch is an Omarchy shell plugin that monitors HTTP, TCP, and structured J
 - TCP host/port checks
 - JSON status checks with configurable field paths and health mappings
 - Operational, degraded, outage, and unknown health states
+- Native add, edit, enable/disable, and remove controls in the popup
 - Independent interval, timeout, and failure threshold per endpoint
 - Alert on non-operational state changes after the configured threshold; notify again on recovery
 - Bar summary with a detailed, theme-aware popup
@@ -27,7 +28,9 @@ Install directly from GitHub and enable the bar widget:
 omarchy plugin add https://github.com/keithnyc/omanetwatch.git --enable
 ```
 
-Then create your configuration:
+Open the bar popup and press `+` to add your first service. The manage button exposes enable, edit, and remove actions.
+
+To start from the bundled GitHub Status and Cloudflare Status examples instead, copy the example configuration:
 
 ```bash
 mkdir -p ~/.config/omanetwatch
@@ -35,7 +38,7 @@ cp ~/.config/omarchy/plugins/io.github.keithnyc.omanetwatch/config.example.json 
   ~/.config/omanetwatch/targets.json
 ```
 
-Edit `~/.config/omanetwatch/targets.json` with the endpoints you want to monitor.
+The examples are disabled by default. Enable them in the popup or edit `~/.config/omanetwatch/targets.json`. The JSON file remains the portable backing store and reloads automatically when changed by hand.
 
 ## Install for local development
 

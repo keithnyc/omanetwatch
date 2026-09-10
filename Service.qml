@@ -9,6 +9,7 @@ Item {
   property var shell: null
   property var manifest: null
   readonly property string home: Quickshell.env("HOME")
+  readonly property string configDir: home + "/.config/omanetwatch"
   readonly property string configPath: home + "/.config/omanetwatch/targets.json"
   readonly property string stateDir: home + "/.local/state/omanetwatch"
   readonly property string statePath: stateDir + "/history.json"
@@ -19,6 +20,7 @@ Item {
     .replace(/^file:\/\//, "")
 
   property var targets: []
+  property var rawTargets: []
   property var results: []
   property var nextDue: ({})
   property var pendingIds: []
@@ -77,6 +79,67 @@ Item {
     return row && Array.isArray(row.history) ? row.history : []
   }
 
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value))
+  }
+
+  function rawIndexForId(id) {
+    for (var i = 0; i < rawTargets.length; i++) {
+      try {
+        if (Model.normalizeTarget(rawTargets[i], i).id === id) return i
+      } catch (error) {}
+    }
+    return -1
+  }
+
+  function targetConfig(id) {
+    var index = rawIndexForId(id)
+    return index >= 0 ? clone(rawTargets[index]) : null
+  }
+
+  function writeTargets(next) {
+    try {
+      Model.normalizeTargets(next)
+      var serialized = JSON.stringify(next, null, 2) + "\n"
+      configError = ""
+      configFile.setText(serialized)
+      // FileView's own writes do not trigger onFileChanged, so update the
+      // running service immediately instead of waiting for an external edit.
+      loadConfig(serialized)
+      return ""
+    } catch (error) {
+      return String(error)
+    }
+  }
+
+  function saveTarget(originalId, input) {
+    var next = clone(rawTargets)
+    var index = originalId ? rawIndexForId(originalId) : -1
+    if (originalId && index < 0) return "Target no longer exists"
+
+    var target = Model.mergeTargetConfig(index >= 0 ? next[index] : null, input)
+
+    if (index >= 0) next[index] = target
+    else next.push(target)
+    return writeTargets(next)
+  }
+
+  function removeTarget(id) {
+    var index = rawIndexForId(id)
+    if (index < 0) return "Target no longer exists"
+    var next = clone(rawTargets)
+    next.splice(index, 1)
+    return writeTargets(next)
+  }
+
+  function setTargetEnabled(id, enabled) {
+    var index = rawIndexForId(id)
+    if (index < 0) return "Target no longer exists"
+    var next = clone(rawTargets)
+    next[index].enabled = enabled === true
+    return writeTargets(next)
+  }
+
   function loadState(raw) {
     var stored = {}
     try {
@@ -119,6 +182,7 @@ Item {
     try {
       var parsed = JSON.parse(String(raw || ""))
       var normalized = Model.normalizeTargets(parsed)
+      rawTargets = clone(parsed)
       var kept = []
       for (var i = 0; i < normalized.length; i++) {
         var target = normalized[i]
@@ -312,10 +376,14 @@ Item {
     id: configFile
     path: root.configPath
     watchChanges: true
+    atomicWrites: true
     printErrors: false
     onLoaded: root.loadConfig(text())
     onLoadFailed: function(error) {
-      root.configError = "Create " + root.configPath + " from config.example.json"
+      root.rawTargets = []
+      root.targets = []
+      root.results = []
+      root.configError = ""
     }
     onFileChanged: reload()
   }
@@ -331,7 +399,7 @@ Item {
   }
 
   Process {
-    command: ["mkdir", "-p", root.stateDir]
+    command: ["mkdir", "-p", root.configDir, root.stateDir]
     running: true
     onExited: stateFile.reload()
   }

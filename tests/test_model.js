@@ -61,5 +61,16 @@ test("preserves canonical state in history", () => {
   equal(history[0].state, "degraded")
 })
 
+test("editor updates preserve unknown fields", () => {
+  const merged = model.mergeTargetConfig(
+    {name: "Old", type: "http", url: "https://old.example", customMetadata: "keep"},
+    {name: "New", type: "tcp", host: "example.com", port: 443}
+  )
+  equal(merged.customMetadata, "keep")
+  equal(merged.type, "tcp")
+  equal(merged.url, undefined)
+  equal(merged.host, "example.com")
+})
+
 if (failures) process.exit(1)
 console.log("all passing")
