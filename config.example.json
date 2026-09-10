@@ -60,5 +60,15 @@
     "intervalSeconds": 60,
     "timeoutSeconds": 5,
     "failuresBeforeAlert": 2
+  },
+  {
+    "id": "xai-incidents",
+    "name": "xAI incident updates",
+    "type": "feed",
+    "enabled": false,
+    "url": "https://status.x.ai/feed.xml",
+    "sourceUrl": "https://status.x.ai/",
+    "intervalSeconds": 300,
+    "timeoutSeconds": 10
   }
 ]

@@ -75,8 +75,10 @@ Panel {
   }
 
   function statusSummary() {
-    if (!root.monitorService || root.problemCount === 0)
-      return root.rows.length > 0 ? "All systems operational" : "OmaNetWatch"
+    if (!root.monitorService) return "OmaNetWatch"
+    if (root.monitorService.healthTargetCount === 0)
+      return root.monitorService.feedCount > 0 ? "Incident feeds" : "OmaNetWatch"
+    if (root.problemCount === 0) return "All systems operational"
     var parts = []
     if (root.monitorService.outageCount > 0) parts.push(root.monitorService.outageCount + " outage" + (root.monitorService.outageCount === 1 ? "" : "s"))
     if (root.monitorService.degradedCount > 0) parts.push(root.monitorService.degradedCount + " degraded")
@@ -241,7 +243,7 @@ Panel {
               anchors.left: statusDot.right
               anchors.leftMargin: Style.space(10)
               anchors.right: chartColumn.left
-              anchors.rightMargin: Style.space(12)
+              anchors.rightMargin: modelData.type === "feed" ? 0 : Style.space(12)
               spacing: Style.space(2)
 
               Row {
@@ -297,8 +299,8 @@ Panel {
 
             Column {
               id: chartColumn
-              visible: !root.manageMode
-              width: Style.space(118)
+              visible: !root.manageMode && modelData.type !== "feed"
+              width: visible ? Style.space(118) : 0
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.space(2)

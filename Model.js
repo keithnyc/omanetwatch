@@ -48,7 +48,7 @@ function normalizeTarget(raw, index) {
   if (!raw || typeof raw !== "object") throw new Error("target " + (index + 1) + " must be an object")
 
   var type = String(raw.type || "http").toLowerCase()
-  if (type !== "http" && type !== "tcp" && type !== "json")
+  if (type !== "http" && type !== "tcp" && type !== "json" && type !== "feed")
     throw new Error("target " + (index + 1) + " has unsupported type '" + type + "'")
 
   var name = String(raw.name || "").trim()
@@ -68,7 +68,7 @@ function normalizeTarget(raw, index) {
 
   if (!target.id) target.id = "target-" + (index + 1)
 
-  if (type === "http" || type === "json") {
+  if (type === "http" || type === "json" || type === "feed") {
     target.url = String(raw.url || "").trim()
     target.expectedStatus = positiveInteger(raw.expectedStatus, 200)
     if (!/^https?:\/\//.test(target.url)) throw new Error(name + " needs an http:// or https:// URL")
@@ -88,6 +88,9 @@ function normalizeTarget(raw, index) {
       }
       if (mapped === 0) throw new Error(name + " needs at least one statusMap entry")
       target.reasonPath = String(raw.reasonPath || "").trim()
+      target.sourceUrl = String(raw.sourceUrl || target.url).trim()
+      if (!/^https?:\/\//.test(target.sourceUrl)) throw new Error(name + " needs an http:// or https:// sourceUrl")
+    } else if (type === "feed") {
       target.sourceUrl = String(raw.sourceUrl || target.url).trim()
       if (!/^https?:\/\//.test(target.sourceUrl)) throw new Error(name + " needs an http:// or https:// sourceUrl")
     }
@@ -123,6 +126,10 @@ function resultDetail(result) {
   if (!result) return "Waiting for first check"
   if (result.disabled) return "Disabled"
   if (result.checking) return "Checking…"
+  if (result.type === "feed") {
+    if (!result.ok) return result.error || "Feed check failed"
+    return result.latestItemTitle || "Watching for incident updates"
+  }
   if (result.ok) {
     if (result.type === "json") {
       var healthyReason = String(result.reason || "").trim()
@@ -136,6 +143,47 @@ function resultDetail(result) {
     return stateLabel(resultState(result)) + (detail ? " · " + detail : "")
   }
   return result.error || "Check failed"
+}
+
+function updateFeedState(previous, items, limit) {
+  var prior = previous && typeof previous === "object" ? previous : {}
+  var fingerprints = {}
+  var changes = []
+  var initialized = prior.initialized === true
+  var old = prior.fingerprints && typeof prior.fingerprints === "object" ? prior.fingerprints : {}
+  var values = Array.isArray(items) ? items : []
+  var maxItems = Math.max(1, Number(limit) || 200)
+
+  for (var i = 0; i < values.length && i < maxItems; i++) {
+    var item = values[i]
+    if (!item || typeof item !== "object") continue
+    var id = String(item.id || "")
+    var fingerprint = String(item.fingerprint || "")
+    if (!id || !fingerprint) continue
+    var key = "$" + id
+    fingerprints[key] = fingerprint
+    if (initialized) {
+      if (old[key] === undefined) changes.push({ kind: "new", item: item })
+      else if (String(old[key]) !== fingerprint) changes.push({ kind: "updated", item: item })
+    }
+  }
+
+  var count = Object.keys(fingerprints).length
+  for (var oldKey in old) {
+    if (count >= maxItems) break
+    if (fingerprints[oldKey] === undefined) {
+      fingerprints[oldKey] = String(old[oldKey])
+      count++
+    }
+  }
+  return {
+    state: {
+      initialized: true,
+      fingerprints: fingerprints,
+      latest: values.length > 0 ? values[0] : (prior.latest || null)
+    },
+    changes: changes
+  }
 }
 
 function relativeTime(timestamp, now) {

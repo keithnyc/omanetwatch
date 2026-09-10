@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import socket
 import ssl
@@ -10,6 +11,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 
 MAX_RESPONSE_BYTES = 1024 * 1024
 
@@ -160,6 +162,115 @@ def check_json(target: dict) -> dict:
         return {"ok": False, "state": "unknown", "latencyMs": elapsed_ms(started), "error": str(reason)}
 
 
+def local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].lower()
+
+
+def child_text(element: ET.Element, *names: str) -> str:
+    wanted = {name.lower() for name in names}
+    for child in element:
+        if local_name(child.tag) in wanted:
+            return "".join(child.itertext()).strip()
+    return ""
+
+
+def item_link(element: ET.Element) -> str:
+    for child in element:
+        if local_name(child.tag) != "link":
+            continue
+        href = str(child.attrib.get("href", "")).strip()
+        rel = str(child.attrib.get("rel", "alternate")).lower()
+        if href and rel in {"", "alternate"}:
+            return href
+        text = "".join(child.itertext()).strip()
+        if text:
+            return text
+    return ""
+
+
+def parse_feed(body: bytes) -> tuple[str, list[dict]]:
+    # ElementTree does not fetch external entities. The shared HTTP helper also
+    # caps input at 1 MiB before XML parsing.
+    root = ET.fromstring(body)
+    root_name = local_name(root.tag)
+    if root_name == "rss":
+        container = next((child for child in root if local_name(child.tag) == "channel"), None)
+        if container is None:
+            raise ValueError("RSS feed has no channel")
+        feed_title = child_text(container, "title")
+        elements = [child for child in container if local_name(child.tag) == "item"]
+    elif root_name == "feed":
+        container = root
+        feed_title = child_text(container, "title")
+        elements = [child for child in container if local_name(child.tag) == "entry"]
+    elif root_name == "rdf":
+        channel = next((child for child in root if local_name(child.tag) == "channel"), None)
+        feed_title = child_text(channel, "title") if channel is not None else ""
+        elements = [child for child in root if local_name(child.tag) == "item"]
+    else:
+        raise ValueError("Response is not an RSS or Atom feed")
+
+    items = []
+    for element in elements[:50]:
+        title = child_text(element, "title")[:512]
+        link = item_link(element)[:2048]
+        published = child_text(element, "updated", "pubdate", "published", "date")[:256]
+        content = child_text(element, "content", "description", "summary", "encoded")
+        item_id = child_text(element, "guid", "id") or link
+        if not item_id:
+            item_id = hashlib.sha256((title + "\x1f" + published).encode()).hexdigest()
+        fingerprint = hashlib.sha256(
+            "\x1f".join((title, link, published, content)).encode()
+        ).hexdigest()
+        items.append({
+            "id": item_id[:2048],
+            "title": title or "Untitled feed item",
+            "link": link,
+            "published": published,
+            "fingerprint": fingerprint,
+        })
+    return feed_title[:512], items
+
+
+def check_feed(target: dict) -> dict:
+    started = time.monotonic()
+    expected = int(target.get("expectedStatus", 200))
+    try:
+        status, latency, body, _ = http_request(target, read_body=True)
+        if status != expected:
+            return {
+                "ok": False,
+                "state": "unknown",
+                "statusCode": status,
+                "latencyMs": latency,
+                "error": f"Expected HTTP {expected}, received {status}",
+            }
+        feed_title, items = parse_feed(body)
+        return {
+            "ok": True,
+            "state": "operational",
+            "statusCode": status,
+            "latencyMs": latency,
+            "feedTitle": feed_title,
+            "items": items,
+            "error": "",
+        }
+    except urllib.error.HTTPError as error:
+        error.close()
+        return {
+            "ok": False,
+            "state": "unknown",
+            "statusCode": int(error.code),
+            "latencyMs": elapsed_ms(started),
+            "error": f"Expected HTTP {expected}, received {int(error.code)}",
+        }
+    except (UnicodeError, ET.ParseError, ValueError) as error:
+        return {"ok": False, "state": "unknown", "latencyMs": elapsed_ms(started), "error": str(error)}
+    except (urllib.error.URLError, TimeoutError, socket.timeout, ssl.SSLError) as error:
+        reason = getattr(error, "reason", error)
+        return {"ok": False, "state": "unknown", "latencyMs": elapsed_ms(started), "error": str(reason)}
+
+
 def check_tcp(target: dict) -> dict:
     started = time.monotonic()
     try:
@@ -185,6 +296,8 @@ def main() -> int:
             result = check_http(target)
         elif target_type == "json":
             result = check_json(target)
+        elif target_type == "feed":
+            result = check_feed(target)
         else:
             result = check_tcp(target)
     except Exception as error:  # A malformed local config should still yield a result row.

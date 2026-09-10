@@ -22,7 +22,24 @@ class Handler(BaseHTTPRequestHandler):
             "/unmapped": (200, {"status": {"indicator": "mystery"}}),
             "/missing": (200, {"other": "none"}),
         }
-        if self.path == "/invalid":
+        if self.path == "/rss":
+            status, body = 200, b'''<?xml version="1.0"?><rss version="2.0"><channel>
+              <title>Status incidents</title><item><guid>incident-1</guid><title>API delays</title>
+              <link>https://status.example/incidents/1</link><pubDate>Wed, 09 Sep 2026 12:00:00 GMT</pubDate>
+              <description>Investigating elevated latency</description></item></channel></rss>'''
+        elif self.path == "/atom":
+            status, body = 200, b'''<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+              <title>Status updates</title><entry><id>tag:example,1</id><title>Recovered</title>
+              <link rel="alternate" href="https://status.example/incidents/1"/>
+              <updated>2026-09-09T13:00:00Z</updated><content>Resolved</content></entry></feed>'''
+        elif self.path == "/rdf":
+            status, body = 200, b'''<?xml version="1.0"?><rdf:RDF
+              xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+              xmlns="http://purl.org/rss/1.0/"><channel><title>RSS 1.0 status</title></channel>
+              <item><title>Maintenance</title><link>https://status.example/maintenance</link></item></rdf:RDF>'''
+        elif self.path == "/invalid-feed":
+            status, body = 200, b"<html><body>not a feed</body></html>"
+        elif self.path == "/invalid":
             status, body = 200, b"not json"
         elif self.path == "/large":
             status, body = 200, b" " * (CHECKER.MAX_RESPONSE_BYTES + 1)
@@ -114,6 +131,39 @@ class CheckerTest(unittest.TestCase):
         result = CHECKER.check_http(self.target("/error"))
         self.assertFalse(result["ok"])
         self.assertEqual(result["state"], "outage")
+
+    def feed_target(self, path):
+        return {
+            "type": "feed",
+            "url": self.base + path,
+            "expectedStatus": 200,
+            "timeoutSeconds": 2,
+        }
+
+    def test_rss_feed(self):
+        result = CHECKER.check_feed(self.feed_target("/rss"))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["feedTitle"], "Status incidents")
+        self.assertEqual(result["items"][0]["id"], "incident-1")
+        self.assertEqual(result["items"][0]["title"], "API delays")
+        self.assertEqual(len(result["items"][0]["fingerprint"]), 64)
+
+    def test_atom_feed(self):
+        result = CHECKER.check_feed(self.feed_target("/atom"))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["items"][0]["id"], "tag:example,1")
+        self.assertEqual(result["items"][0]["link"], "https://status.example/incidents/1")
+
+    def test_rss_1_feed(self):
+        result = CHECKER.check_feed(self.feed_target("/rdf"))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["feedTitle"], "RSS 1.0 status")
+        self.assertEqual(result["items"][0]["title"], "Maintenance")
+
+    def test_non_feed_xml_is_unknown(self):
+        result = CHECKER.check_feed(self.feed_target("/invalid-feed"))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["state"], "unknown")
 
 
 if __name__ == "__main__":

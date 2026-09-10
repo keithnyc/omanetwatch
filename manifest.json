@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.keithnyc.omanetwatch",
   "name": "OmaNetWatch",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "Keith",
   "license": "MIT",
-  "description": "Monitor HTTP, TCP, and JSON status endpoints from the Omarchy bar",
+  "description": "Monitor endpoints, provider health, and incident feeds from the Omarchy bar",
   "kinds": [
     "service",
     "bar-widget"
