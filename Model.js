@@ -128,7 +128,9 @@ function resultDetail(result) {
   if (result.checking) return "Checking…"
   if (result.type === "feed") {
     if (!result.ok) return result.error || "Feed check failed"
-    return result.latestItemTitle || "Watching for incident updates"
+    var itemTitle = result.latestItemTitle || "Watching for incident updates"
+    var itemStatus = String(result.latestItemStatus || "").trim()
+    return itemStatus ? itemStatus + " · " + itemTitle : itemTitle
   }
   if (result.ok) {
     if (result.type === "json") {

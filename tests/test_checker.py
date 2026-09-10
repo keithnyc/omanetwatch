@@ -26,7 +26,7 @@ class Handler(BaseHTTPRequestHandler):
             status, body = 200, b'''<?xml version="1.0"?><rss version="2.0"><channel>
               <title>Status incidents</title><item><guid>incident-1</guid><title>API delays</title>
               <link>https://status.example/incidents/1</link><pubDate>Wed, 09 Sep 2026 12:00:00 GMT</pubDate>
-              <description>Investigating elevated latency</description></item></channel></rss>'''
+              <description>&lt;h3&gt;Status: RESOLVED&lt;/h3&gt;&lt;p&gt;Recovered&lt;/p&gt;</description></item></channel></rss>'''
         elif self.path == "/atom":
             status, body = 200, b'''<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
               <title>Status updates</title><entry><id>tag:example,1</id><title>Recovered</title>
@@ -146,6 +146,7 @@ class CheckerTest(unittest.TestCase):
         self.assertEqual(result["feedTitle"], "Status incidents")
         self.assertEqual(result["items"][0]["id"], "incident-1")
         self.assertEqual(result["items"][0]["title"], "API delays")
+        self.assertEqual(result["items"][0]["status"], "Resolved")
         self.assertEqual(len(result["items"][0]["fingerprint"]), 64)
 
     def test_atom_feed(self):
@@ -153,6 +154,7 @@ class CheckerTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["items"][0]["id"], "tag:example,1")
         self.assertEqual(result["items"][0]["link"], "https://status.example/incidents/1")
+        self.assertEqual(result["items"][0]["status"], "")
 
     def test_rss_1_feed(self):
         result = CHECKER.check_feed(self.feed_target("/rdf"))

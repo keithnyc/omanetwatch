@@ -181,6 +181,7 @@ Item {
         var feed = storedFeeds[row.id]
         var latest = feed && feed.latest ? feed.latest : null
         copy.latestItemTitle = latest ? String(latest.title || "") : ""
+        copy.latestItemStatus = latest ? String(latest.status || "") : ""
         copy.latestItemLink = latest ? String(latest.link || "") : ""
         copy.latestItemPublished = latest ? String(latest.published || "") : ""
         copy.label = latest && latest.link ? String(latest.link) : copy.label
@@ -235,6 +236,7 @@ Item {
           var savedFeed = feedStates[target.id]
           var latest = savedFeed && savedFeed.latest ? savedFeed.latest : null
           row.latestItemTitle = latest ? String(latest.title || "") : ""
+          row.latestItemStatus = latest ? String(latest.status || "") : ""
           row.latestItemLink = latest ? String(latest.link || "") : ""
           row.latestItemPublished = latest ? String(latest.published || "") : ""
         }
@@ -456,6 +458,7 @@ Item {
       consecutiveFailures: 0,
       checkedAt: checkedAt,
       latestItemTitle: latest ? String(latest.title || "") : "",
+      latestItemStatus: latest ? String(latest.status || "") : "",
       latestItemLink: latest ? String(latest.link || "") : "",
       latestItemPublished: latest ? String(latest.published || "") : "",
       history: []
@@ -487,6 +490,7 @@ Item {
         var item = change.item || ({})
         var title = target.name + (change.kind === "updated" ? ": incident updated" : ": new incident")
         var body = String(item.title || "Untitled feed item")
+        if (item.status) body = String(item.status) + " · " + body
         if (item.link) body += "\n" + String(item.link)
         sendNotification(title, body, "normal", "󰑫")
       }

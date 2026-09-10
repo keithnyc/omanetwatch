@@ -93,6 +93,12 @@ test("first feed check establishes a quiet baseline", () => {
   equal(update.state.latest.title, "Incident")
 })
 
+test("formats an explicit feed status with its incident title", () => {
+  equal(model.resultDetail({
+    type: "feed", ok: true, latestItemStatus: "Resolved", latestItemTitle: "API degraded"
+  }), "Resolved · API degraded")
+})
+
 test("feed state detects new and updated items", () => {
   const original = {id: "one", fingerprint: "a", title: "Incident"}
   const prior = model.updateFeedState(null, [original], 200).state
